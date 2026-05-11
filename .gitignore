@@ -1,0 +1,63 @@
+# Unity generated
+/[Ll]ibrary/
+/[Tt]emp/
+/[Oo]bj/
+/[Bb]uild/
+/[Bb]uilds/
+/[Ll]ogs/
+/[Uu]ser[Ss]ettings/
+/[Mm]emory[Cc]aptures/
+/[Aa]ssets/AssetStoreTools*
+/[Aa]ssets/Plugins/Editor/JetBrains*
+/[Aa]ssets/[Ss]creenshots/
+/[Aa]ssets/Unity.VisualScripting.Generated/
+
+# IDE / editor noise
+.claude/
+.vs/
+.vscode/
+.idea/
+.gradle/
+ExportedObj/
+.consulo/
+*.csproj
+*.unityproj
+*.sln
+*.suo
+*.tmp
+*.user
+*.userprefs
+*.pidb
+*.booproj
+*.svd
+*.pdb
+*.mdb
+*.opendb
+*.VC.db
+
+# OS noise
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Built players
+*.apk
+*.aab
+*.app
+*.unitypackage
+*.unitypackage.meta
+sysinfo.txt
+crashlytics-build.properties
+
+# Source assets that shouldn't ship in source control
+*.mp4
+*.mov
+*.MP4
+*.MOV
+*.fbx
+*.FBX
+*.obj
+*.OBJ
+
+# Keep meta files for empty asset folders — Unity needs them — but
+# delete a folder + its .meta together if you want it gone.
