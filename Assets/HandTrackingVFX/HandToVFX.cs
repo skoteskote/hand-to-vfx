@@ -26,10 +26,18 @@ namespace HandTrackingVFX
         [Header("Joints")]
         [Tooltip("If set, this prefab is instantiated 21 times, one per joint. The script will move each instance to its joint's world position every frame.")]
         [SerializeField] GameObject _jointPrefab;
-        [Tooltip("If set, this Visual Effect asset is instantiated 21 times, one as a child of each joint. Each instance gets its own VisualEffect component, so trail/particle outputs follow the joint as it moves.")]
-        [SerializeField] VisualEffectAsset _perJointVFX;
         [Tooltip("If true, joints whose pipeline position has not yet been initialised are hidden.")]
         [SerializeField] bool _hideUntilDetected = true;
+
+        [Header("Gizmos")]
+        [Tooltip("Draw a gizmo per joint in the scene view.")]
+        [SerializeField] bool _drawJointGizmos = true;
+        [Tooltip("Radius of each joint gizmo, in world units.")]
+        [SerializeField, Range(0.0001f, 0.1f)] float _gizmoSize = 0.01f;
+        [Tooltip("Show joint index labels next to each gizmo.")]
+        [SerializeField] bool _drawJointLabels;
+        [Tooltip("Draw lines connecting joints along each finger.")]
+        [SerializeField] bool _drawBones = true;
 
         [Header("VFX target (optional)")]
         [Tooltip("A VisualEffect that will receive the hand data via exposed properties.")]
@@ -84,14 +92,6 @@ namespace HandTrackingVFX
                 go.name = $"Joint_{i:00}";
                 if (_hideUntilDetected) go.SetActive(false);
                 _joints[i] = go.transform;
-
-                if (_perJointVFX != null)
-                {
-                    var vfxChild = new GameObject("VFX");
-                    vfxChild.transform.SetParent(go.transform, false);
-                    var vfx = vfxChild.AddComponent<VisualEffect>();
-                    vfx.visualEffectAsset = _perJointVFX;
-                }
             }
         }
 
@@ -168,6 +168,66 @@ namespace HandTrackingVFX
             }
             _positionMap.SetPixels(_pixelBuffer);
             _positionMap.Apply(false, false);
+        }
+
+        // MediaPipe HandPose finger groups: each row is a chain of joint indices.
+        static readonly int[][] _fingers =
+        {
+            new[] { 0, 1, 2, 3, 4 },        // thumb
+            new[] { 0, 5, 6, 7, 8 },        // index
+            new[] { 0, 9, 10, 11, 12 },     // middle
+            new[] { 0, 13, 14, 15, 16 },    // ring
+            new[] { 0, 17, 18, 19, 20 },    // pinky
+        };
+
+        static readonly Color[] _fingerColors =
+        {
+            new Color(1f, 0.45f, 0.2f),     // thumb  - orange
+            new Color(1f, 0.9f, 0.2f),      // index  - yellow
+            new Color(0.4f, 1f, 0.4f),      // middle - green
+            new Color(0.3f, 0.7f, 1f),      // ring   - blue
+            new Color(0.9f, 0.4f, 1f),      // pinky  - magenta
+        };
+
+        void OnDrawGizmos()
+        {
+            if (!_drawJointGizmos) return;
+            if (_joints == null || _joints.Length != JointCount) return;
+            if (_hideUntilDetected && !_hasReadback) return;
+
+            for (var f = 0; f < _fingers.Length; f++)
+            {
+                var chain = _fingers[f];
+                Gizmos.color = _fingerColors[f];
+
+                for (var k = 0; k < chain.Length; k++)
+                {
+                    var idx = chain[k];
+                    var t = _joints[idx];
+                    if (t == null) continue;
+
+                    Gizmos.DrawSphere(t.position, _gizmoSize);
+
+                    if (_drawBones && k > 0)
+                    {
+                        var prev = _joints[chain[k - 1]];
+                        if (prev != null) Gizmos.DrawLine(prev.position, t.position);
+                    }
+
+#if UNITY_EDITOR
+                    if (_drawJointLabels)
+                        UnityEditor.Handles.Label(t.position + Vector3.up * _gizmoSize * 1.5f, idx.ToString());
+#endif
+                }
+            }
+
+            // Wrist highlight so it's easy to spot in the cluster of base joints.
+            var wrist = _joints[0];
+            if (wrist != null)
+            {
+                Gizmos.color = Color.white;
+                Gizmos.DrawWireSphere(wrist.position, _gizmoSize * 1.6f);
+            }
         }
     }
 }

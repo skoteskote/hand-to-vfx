@@ -6,7 +6,7 @@ EditorBuildSettings:
   serializedVersion: 2
   m_Scenes:
   - enabled: 1
-    path: Assets/HandTrackingVFX/HandTrackingVFX_Demo.unity
+    path: Assets/HandTrackingVFX.unity
     guid: 14685a0b9ca88174fb13014ff2561393
   m_configObjects:
     com.unity.adaptiveperformance.loader_settings: {fileID: 11400000, guid: 5628e882a6aa6dd4aa273825137cf7cf, type: 2}

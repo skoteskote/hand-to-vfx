@@ -1,6 +1,3 @@
-#ifndef HANDTRACKINGVFX_SAMPLE_HAND_HLSL
-#define HANDTRACKINGVFX_SAMPLE_HAND_HLSL
-
 // SampleHand — picks a position on the MediaPipe 21-joint hand skeleton for VFX Graph.
 //
 // PositionMap is the 32x1 RGBA32F texture written by HandToVFX.cs:
@@ -17,15 +14,6 @@
 // per finger), which reads as a "filled hand" rather than a sparse skeleton. Adjust the
 // bone array if you want different density.
 
-static const uint2 kHandBones[21] = {
-    uint2(0, 1),  uint2(1, 2),  uint2(2, 3),  uint2(3, 4),                   // Thumb
-    uint2(5, 6),  uint2(6, 7),  uint2(7, 8),                                 // Index
-    uint2(9, 10), uint2(10, 11), uint2(11, 12),                              // Middle
-    uint2(13, 14), uint2(14, 15), uint2(15, 16),                             // Ring
-    uint2(17, 18), uint2(18, 19), uint2(19, 20),                             // Pinky
-    uint2(0, 17), uint2(0, 5), uint2(5, 9), uint2(9, 13), uint2(13, 17)      // Palm fan
-};
-
 // PCG-style 32-bit hash. Stable across GPUs (frac(sin(...)) drifts on mobile / Metal).
 uint _SH_Hash(uint x)
 {
@@ -37,16 +25,37 @@ uint _SH_Hash(uint x)
 }
 float _SH_HashF(uint x) { return float(_SH_Hash(x) & 0x00ffffffu) / 16777216.0; }
 
-void SampleHand(
-    in Texture2D PositionMap,
-    in float Seed,           // any value; particleId or a VFX Random both work
-    in float Thickness,      // radial offset around the bone, world units
-    in float TipBias,        // 0 = uniform along bone, 1 = strong bias toward the second endpoint
-    out float3 Position,     // sampled point in world space
-    out float3 Tangent,      // normalised direction along the bone (start -> end)
-    out float Speed,         // interpolated joint speed at this point
-    out uint BoneIndex)      // which bone was picked (0..20), useful for coloring
+// Parameters (kept comment-free in the signature so VFX Graph's reflection parses cleanly):
+//   PositionMap : 32x1 RGBA32F from HandToVFX.cs
+//   Seed        : any value; particleId or a VFX Random both work
+//   Thickness   : radial offset around the bone, world units
+//   TipBias     : 0 = uniform along bone, 1 = strong bias toward the second endpoint
+//   PosSpeed    : xyz = sampled world position, w = interpolated joint speed
+//   DirBone     : xyz = bone tangent (start -> end), w = picked bone index (0..20)
+//
+// Outputs are packed into two float4s on purpose: VFX Graph's Custom HLSL codegen has
+// shown character-eating bugs when mixing scalar/vector `out` types or using names that
+// start with `Out` (e.g. `OutBoneIndex` -> `utBoneIndex`, `float` -> `oat` in the call
+// site). Two uniform float4 outs sidestep both.
+void SampleBoneHand(
+    Texture2D PositionMap,
+    float Seed,
+    float Thickness,
+    float TipBias,
+    out float4 PosSpeed,
+    out float4 DirBone)
 {
+    // Defined inside the function: VFX Graph inlines this .hlsl, and file-scope
+    // `static const uintN[]` arrays don't survive that context reliably.
+    const int2 kHandBones[21] = {
+        int2(0, 1),  int2(1, 2),  int2(2, 3),  int2(3, 4),                   // Thumb
+        int2(5, 6),  int2(6, 7),  int2(7, 8),                                // Index
+        int2(9, 10), int2(10, 11), int2(11, 12),                             // Middle
+        int2(13, 14), int2(14, 15), int2(15, 16),                            // Ring
+        int2(17, 18), int2(18, 19), int2(19, 20),                            // Pinky
+        int2(0, 17), int2(0, 5), int2(5, 9), int2(9, 13), int2(13, 17)       // Palm fan
+    };
+
     // Pull four independent uniforms out of one seed. Offsetting the hash state with
     // golden-ratio-ish constants decorrelates the streams cheaply.
     uint s = asuint(Seed * 4294967.0);
@@ -55,30 +64,31 @@ void SampleHand(
     float h3 = _SH_HashF(s + 0xfacedeadu);
     float h4 = _SH_HashF(s + 0x12345678u);
 
-    BoneIndex = min((uint)floor(h1 * 21.0), 20u);
-    uint2 ij = kHandBones[BoneIndex];
+    int picked = min((int)floor(h1 * 21.0), 20);
+    int2 ij = kHandBones[picked];
 
-    float4 a = PositionMap.Load(int3((int)ij.x, 0, 0));
-    float4 b = PositionMap.Load(int3((int)ij.y, 0, 0));
+    float4 a = PositionMap.Load(int3(ij.x, 0, 0));
+    float4 b = PositionMap.Load(int3(ij.y, 0, 0));
 
     // pow remap of t. TipBias=0 -> t=h2 (uniform). TipBias=1 -> t ~ h2^20 (clumped near b).
     float t = pow(h2, max(0.05, 1.0 - clamp(TipBias, 0.0, 0.95)));
 
     float3 along = lerp(a.rgb, b.rgb, t);
-    Speed = lerp(a.a, b.a, t);
+    float speed = lerp(a.a, b.a, t);
 
     float3 bone = b.rgb - a.rgb;
     float bl = max(1e-6, length(bone));
-    Tangent = bone / bl;
+    float3 tangent = bone / bl;
 
     // Disc-uniform radial offset perpendicular to the bone. sqrt(h4) for uniform area density.
-    float3 up = abs(Tangent.y) < 0.95 ? float3(0, 1, 0) : float3(1, 0, 0);
-    float3 bn = normalize(cross(Tangent, up));
-    float3 nm = cross(Tangent, bn);
+    float3 up = abs(tangent.y) < 0.95 ? float3(0, 1, 0) : float3(1, 0, 0);
+    float3 bn = normalize(cross(tangent, up));
+    float3 nm = cross(tangent, bn);
     float ang = h3 * 6.28318530718;
     float rad = sqrt(h4) * Thickness;
 
-    Position = along + (cos(ang) * bn + sin(ang) * nm) * rad;
-}
+    float3 sampledPos = along + (cos(ang) * bn + sin(ang) * nm) * rad;
 
-#endif
+    PosSpeed = float4(sampledPos, speed);
+    DirBone  = float4(tangent, (float)picked);
+}
